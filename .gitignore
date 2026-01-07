@@ -1,0 +1,58 @@
+# Exclude OP25 itself
+op25/
+
+# Exclude binary files and recordings
+rtl_tcp_echo
+iq_recording.bin
+
+# Exclude build artifacts
+controller25/controller25
+controller25/controller25-arm64
+
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Flutter/Dart build artifacts
+mch25/build/
+mch25/.dart_tool/
+mch25/.packages
+mch25/.pub-cache/
+mch25/.pub/
+mch25/.flutter-plugins
+mch25/.flutter-plugins-dependencies
+
+# Android/iOS specific
+mch25/android/.gradle/
+mch25/android/captures/
+mch25/android/local.properties
+mch25/android/.idea/
+mch25/ios/Pods/
+mch25/ios/.symlinks/
+mch25/ios/Flutter/Flutter.framework
+mch25/ios/Flutter/Flutter.podspec
+
+# Linux build
+mch25/linux/flutter/ephemeral/
