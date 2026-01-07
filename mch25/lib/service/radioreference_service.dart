@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
 class RadioReferenceService extends ChangeNotifier {
+  final _secureStorage = const FlutterSecureStorage();
+  
   String? username;
   String? password;
   bool isLoggedIn = false;
@@ -23,10 +26,44 @@ class RadioReferenceService extends ChangeNotifier {
   List<Map<String, dynamic>>? downloadedSites;
   String? systemFolderPath;
 
-  // You may want to persist these in secure storage.
-  RadioReferenceService({this.username, this.password});
+  RadioReferenceService({this.username, this.password}) {
+    _loadCredentials();
+  }
 
-  // For now, store in memory; for production, use secure storage.
+  // Load saved credentials from secure storage
+  Future<void> _loadCredentials() async {
+    try {
+      username = await _secureStorage.read(key: 'rr_username');
+      password = await _secureStorage.read(key: 'rr_password');
+      if (username != null && password != null) {
+        isLoggedIn = true;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error loading credentials: $e');
+    }
+  }
+
+  // Save credentials to secure storage
+  Future<void> _saveCredentials(String user, String pass) async {
+    try {
+      await _secureStorage.write(key: 'rr_username', value: user);
+      await _secureStorage.write(key: 'rr_password', value: pass);
+    } catch (e) {
+      debugPrint('Error saving credentials: $e');
+    }
+  }
+
+  // Clear credentials from secure storage
+  Future<void> _clearCredentials() async {
+    try {
+      await _secureStorage.delete(key: 'rr_username');
+      await _secureStorage.delete(key: 'rr_password');
+    } catch (e) {
+      debugPrint('Error clearing credentials: $e');
+    }
+  }
+
   Future<bool> validateCredentials(String user, String pass) async {
     isLoading = true;
     errorMessage = null;
@@ -53,7 +90,11 @@ class RadioReferenceService extends ChangeNotifier {
         isLoggedIn = true;
         isLoading = false;
         errorMessage = null;
-        debugPrint("RadioReference: Login successful!");
+        
+        // Save credentials to secure storage
+        await _saveCredentials(user, pass);
+        
+        debugPrint("RadioReference: Login successful and credentials saved!");
         notifyListeners();
         return true;
       } else {
@@ -75,11 +116,15 @@ class RadioReferenceService extends ChangeNotifier {
     }
   }
 
-  void logout() {
+  Future<void> logout() async {
     username = null;
     password = null;
     isLoggedIn = false;
     errorMessage = null;
+    
+    // Clear saved credentials
+    await _clearCredentials();
+    
     notifyListeners();
   }
 

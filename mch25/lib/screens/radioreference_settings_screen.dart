@@ -27,6 +27,7 @@ class _RadioReferenceSettingsScreenState
       final rrService =
           Provider.of<RadioReferenceService>(context, listen: false);
       _usernameController.text = rrService.username ?? '';
+      _passwordController.text = rrService.password ?? '';
       _zipcodeController.text = rrService.currentZipcode ?? '';
     });
   }
@@ -62,11 +63,6 @@ class _RadioReferenceSettingsScreenState
           duration: const Duration(seconds: 5),
         ),
       );
-    }
-    
-    // Only clear password field on successful login
-    if (success) {
-      _passwordController.clear();
     }
   }
 
