@@ -2,13 +2,17 @@ package main
 
 import (
     "encoding/json"
+    "fmt"
     "io"
     "log"
+    "math"
+    "mime/multipart"
     "net/http"
     "os"
     "os/exec"
     "os/signal"
     "path/filepath"
+    "sort"
     "strconv"
     "strings"
     "sync"
@@ -18,8 +22,9 @@ import (
     "controller25/audio"
     "controller25/config"
     "controller25/health"
-    "controller25/log"
+    logstream "controller25/log"
     "controller25/mdns"
+    "controller25/radioreference"
     "controller25/talkgroup"
 )
 
@@ -138,6 +143,40 @@ type Op25ConfigRequest struct {
     TrunkFile  string `json:"trunk_file"`
 }
 
+// RadioReference API types
+type RadioReferenceCreateSystemRequest struct {
+    Username string `json:"username"`
+    Password string `json:"password"`
+    SystemID int    `json:"system_id"`
+}
+
+type RadioReferenceCreateSystemResponse struct {
+    Success      bool   `json:"success"`
+    SystemID     int    `json:"system_id,omitempty"`
+    SitesCount   int    `json:"sites_count,omitempty"`
+    SystemFolder string `json:"system_folder,omitempty"`
+    Error        string `json:"error,omitempty"`
+}
+
+type RadioReferenceListSitesRequest struct {
+    SystemID int `json:"system_id"`
+}
+
+type RadioReferenceListSitesResponse struct {
+    Success bool                  `json:"success"`
+    Sites   []RadioReferenceSite  `json:"sites,omitempty"`
+    Error   string                `json:"error,omitempty"`
+}
+
+type RadioReferenceSite struct {
+    SiteID      int    `json:"site_id"`
+    Description string `json:"description"`
+    Latitude    string `json:"latitude"`
+    Longitude   string `json:"longitude"`
+    TrunkFile   string `json:"trunk_file"`
+}
+
+
 func stopOp25(audioBroadcaster **audio.Broadcaster, logBroadcaster **logstream.Broadcaster) {
     if op25.cmdObj != nil && op25.cmdObj.Process != nil {
         log.Println("Terminating OP25 process...")
@@ -224,6 +263,15 @@ func main() {
     
     // Talkgroup info endpoint
     http.HandleFunc("/api/talkgroup", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method != http.MethodGet {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -242,6 +290,15 @@ func main() {
     })
 
     http.HandleFunc("/api/op25/start", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method != http.MethodPost {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -299,6 +356,15 @@ func main() {
     })
 
     http.HandleFunc("/api/op25/stop", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method != http.MethodPost {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -315,6 +381,15 @@ func main() {
     })
 
     http.HandleFunc("/api/op25/status", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         op25.mu.Lock()
         defer op25.mu.Unlock()
         _ = json.NewEncoder(w).Encode(Op25StatusResponse{
@@ -325,6 +400,15 @@ func main() {
 
     // Trunk file read endpoint
     http.HandleFunc("/api/trunk/read", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method != http.MethodGet {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -342,6 +426,15 @@ func main() {
 
     // Trunk file write endpoint
     http.HandleFunc("/api/trunk/write", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method != http.MethodPost {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -363,8 +456,348 @@ func main() {
         _ = json.NewEncoder(w).Encode(TrunkWriteResponse{Success: true})
     })
 
+    // System file upload endpoint
+    http.HandleFunc("/api/system/upload", func(w http.ResponseWriter, r *http.Request) {
+        log.Printf("=== /api/system/upload called ===")
+        log.Printf("Method: %s", r.Method)
+        log.Printf("Remote Address: %s", r.RemoteAddr)
+        log.Printf("Content-Type: %s", r.Header.Get("Content-Type"))
+        
+        // Set CORS headers
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        // Handle preflight request
+        if r.Method == http.MethodOptions {
+            log.Println("OPTIONS preflight request - returning 200")
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodPost {
+            log.Printf("Method not allowed: %s", r.Method)
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        log.Println("Parsing multipart form...")
+        // Parse multipart form (max 10MB)
+        err := r.ParseMultipartForm(10 << 20)
+        if err != nil {
+            log.Printf("Failed to parse multipart form: %v", err)
+            http.Error(w, "Failed to parse form", http.StatusBadRequest)
+            return
+        }
+        log.Println("Multipart form parsed successfully")
+        
+        // Get system_id and site_id from form
+        systemID := r.FormValue("system_id")
+        siteID := r.FormValue("site_id")
+        
+        log.Printf("Received form fields - system_id: %s, site_id: %s", systemID, siteID)
+        
+        if systemID == "" || siteID == "" {
+            log.Println("ERROR: system_id or site_id is empty")
+            http.Error(w, "system_id and site_id are required", http.StatusBadRequest)
+            return
+        }
+        
+        log.Printf("Creating system folder for system %s...", systemID)
+        // Create systems folder structure
+        systemFolder := filepath.Join(".", "systems", systemID)
+        err = os.MkdirAll(systemFolder, 0755)
+        if err != nil {
+            log.Printf("ERROR: Failed to create system folder: %v", err)
+            http.Error(w, "Failed to create system folder", http.StatusInternalServerError)
+            return
+        }
+        log.Printf("System folder created: %s", systemFolder)
+        
+        log.Println("Getting trunk file from form...")
+        // Get the trunk file
+        trunkFile, trunkHeader, err := r.FormFile("trunk_file")
+        if err != nil {
+            log.Printf("ERROR: Failed to get trunk_file: %v", err)
+            http.Error(w, "trunk_file is required", http.StatusBadRequest)
+            return
+        }
+        defer trunkFile.Close()
+        log.Printf("Trunk file received: %s", trunkHeader.Filename)
+        
+        log.Println("Getting optional talkgroup file...")
+        // Get optional talkgroup file
+        var tgFile multipart.File
+        var tgHeader *multipart.FileHeader
+        tgFile, tgHeader, _ = r.FormFile("talkgroup_file")
+        if tgFile != nil {
+            defer tgFile.Close()
+            log.Printf("Talkgroup file received: %s", tgHeader.Filename)
+        } else {
+            log.Println("No talkgroup file provided")
+        }
+        
+        log.Println("Saving trunk file...")
+        // Save trunk file to systems folder
+        trunkPath := filepath.Join(systemFolder, trunkHeader.Filename)
+        trunkDest, err := os.Create(trunkPath)
+        if err != nil {
+            log.Printf("ERROR: Failed to create trunk file: %v", err)
+            http.Error(w, "Failed to create trunk file", http.StatusInternalServerError)
+            return
+        }
+        defer trunkDest.Close()
+        
+        _, err = io.Copy(trunkDest, trunkFile)
+        if err != nil {
+            log.Printf("ERROR: Failed to write trunk file: %v", err)
+            http.Error(w, "Failed to write trunk file", http.StatusInternalServerError)
+            return
+        }
+        log.Printf("Saved trunk file: %s", trunkPath)
+        
+        // Save talkgroup file if provided
+        var tgPath string
+        if tgFile != nil && tgHeader != nil {
+            log.Println("Saving talkgroup file...")
+            tgPath = filepath.Join(systemFolder, tgHeader.Filename)
+            tgDest, err := os.Create(tgPath)
+            if err != nil {
+                log.Printf("ERROR: Failed to create talkgroup file: %v", err)
+                http.Error(w, "Failed to create talkgroup file", http.StatusInternalServerError)
+                return
+            }
+            defer tgDest.Close()
+            
+            _, err = io.Copy(tgDest, tgFile)
+            if err != nil {
+                log.Printf("ERROR: Failed to write talkgroup file: %v", err)
+                http.Error(w, "Failed to write talkgroup file", http.StatusInternalServerError)
+                return
+            }
+            log.Printf("Saved talkgroup file: %s", tgPath)
+        }
+        
+        log.Println("Updating config.ini...")
+        // Update config.ini to use this trunk file
+        cfg.TrunkFile = filepath.Join("systems", systemID, trunkHeader.Filename)
+        err = config.SaveConfig(configPath, cfg)
+        if err != nil {
+            log.Printf("Warning: Failed to update config.ini: %v", err)
+        } else {
+            log.Printf("Updated config.ini trunk_file to: %s", cfg.TrunkFile)
+        }
+        
+        log.Println("Upload successful! Sending response...")
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success": true,
+            "trunk_file": trunkPath,
+            "talkgroup_file": tgPath,
+            "system_folder": systemFolder,
+        })
+        log.Println("=== Upload complete ===")
+    })
+
+    // RadioReference - Create System endpoint
+    http.HandleFunc("/api/radioreference/create-system", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodPost {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        var req RadioReferenceCreateSystemRequest
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            _ = json.NewEncoder(w).Encode(RadioReferenceCreateSystemResponse{
+                Success: false,
+                Error:   "Invalid request body",
+            })
+            return
+        }
+        
+        log.Printf("RadioReference: Creating system %d with username %s", req.SystemID, req.Username)
+        
+        // Create RadioReference client
+        rrClient := radioreference.NewClient(req.Username, req.Password)
+        
+        // Create system files on server
+        if err := rrClient.CreateSystemFiles(req.SystemID); err != nil {
+            log.Printf("RadioReference: Failed to create system: %v", err)
+            _ = json.NewEncoder(w).Encode(RadioReferenceCreateSystemResponse{
+                Success: false,
+                Error:   fmt.Sprintf("Failed to create system: %v", err),
+            })
+            return
+        }
+        
+        // Get sites to return count
+        sites, err := rrClient.GetTrsSites(req.SystemID)
+        sitesCount := 0
+        if err == nil {
+            sitesCount = len(sites)
+        }
+        
+        systemFolder := filepath.Join("systems", strconv.Itoa(req.SystemID))
+        
+        log.Printf("RadioReference: Successfully created system %d with %d sites", req.SystemID, sitesCount)
+        
+        _ = json.NewEncoder(w).Encode(RadioReferenceCreateSystemResponse{
+            Success:      true,
+            SystemID:     req.SystemID,
+            SitesCount:   sitesCount,
+            SystemFolder: systemFolder,
+        })
+    })
+
+    // RadioReference - List Sites endpoint
+    http.HandleFunc("/api/radioreference/list-sites", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        systemIDStr := r.URL.Query().Get("system_id")
+        if systemIDStr == "" {
+            _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+                Success: false,
+                Error:   "system_id parameter is required",
+            })
+            return
+        }
+        
+        systemID, err := strconv.Atoi(systemIDStr)
+        if err != nil {
+            _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+                Success: false,
+                Error:   "Invalid system_id",
+            })
+            return
+        }
+        
+        // Check if system folder exists
+        systemFolder := filepath.Join("systems", strconv.Itoa(systemID))
+        if _, err := os.Stat(systemFolder); os.IsNotExist(err) {
+            _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+                Success: false,
+                Error:   fmt.Sprintf("System %d not found. Please create it first.", systemID),
+            })
+            return
+        }
+        
+        // Read site metadata JSON file
+        metadataPath := filepath.Join(systemFolder, fmt.Sprintf("%d_sites.json", systemID))
+        metadataBytes, err := os.ReadFile(metadataPath)
+        if err != nil {
+            _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+                Success: false,
+                Error:   "Failed to read site metadata",
+            })
+            return
+        }
+        
+        type SiteMetadata struct {
+            SiteID      int    `json:"site_id"`
+            Description string `json:"description"`
+            Latitude    string `json:"latitude"`
+            Longitude   string `json:"longitude"`
+        }
+        
+        var metadata []SiteMetadata
+        if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+            _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+                Success: false,
+                Error:   "Failed to parse site metadata",
+            })
+            return
+        }
+        
+        // Get optional lat/lon for sorting
+        latStr := r.URL.Query().Get("lat")
+        lonStr := r.URL.Query().Get("lon")
+        
+        var sites []RadioReferenceSite
+        for _, meta := range metadata {
+            sites = append(sites, RadioReferenceSite{
+                SiteID:      meta.SiteID,
+                Description: meta.Description,
+                Latitude:    meta.Latitude,
+                Longitude:   meta.Longitude,
+                TrunkFile:   filepath.Join("systems", strconv.Itoa(systemID), fmt.Sprintf("%d_%d_trunk.tsv", systemID, meta.SiteID)),
+            })
+        }
+        
+        // Sort by distance if lat/lon provided
+        if latStr != "" && lonStr != "" {
+            userLat, err1 := strconv.ParseFloat(latStr, 64)
+            userLon, err2 := strconv.ParseFloat(lonStr, 64)
+            
+            if err1 == nil && err2 == nil {
+                // Haversine distance calculation
+                haversineDistance := func(lat1, lon1, lat2, lon2 float64) float64 {
+                    const R = 6371.0 // Earth's radius in km
+                    lat1Rad := lat1 * math.Pi / 180
+                    lat2Rad := lat2 * math.Pi / 180
+                    deltaLat := (lat2 - lat1) * math.Pi / 180
+                    deltaLon := (lon2 - lon1) * math.Pi / 180
+                    
+                    a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
+                        math.Cos(lat1Rad)*math.Cos(lat2Rad)*
+                        math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
+                    c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+                    
+                    return R * c
+                }
+                
+                sort.Slice(sites, func(i, j int) bool {
+                    iLat, _ := strconv.ParseFloat(sites[i].Latitude, 64)
+                    iLon, _ := strconv.ParseFloat(sites[i].Longitude, 64)
+                    jLat, _ := strconv.ParseFloat(sites[j].Latitude, 64)
+                    jLon, _ := strconv.ParseFloat(sites[j].Longitude, 64)
+                    
+                    distI := haversineDistance(userLat, userLon, iLat, iLon)
+                    distJ := haversineDistance(userLat, userLon, jLat, jLon)
+                    
+                    return distI < distJ
+                })
+                log.Printf("Sorted %d sites by distance from %.4f, %.4f", len(sites), userLat, userLon)
+            }
+        }
+        
+        _ = json.NewEncoder(w).Encode(RadioReferenceListSitesResponse{
+            Success: true,
+            Sites:   sites,
+        })
+    })
+
     // OP25 Config read endpoint
     http.HandleFunc("/api/op25/config", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
         if r.Method == http.MethodGet {
             // Return current config
             _ = json.NewEncoder(w).Encode(Op25ConfigResponse{
@@ -381,18 +814,28 @@ func main() {
                 return
             }
             
-            // Validate SDR device
-            validDevices := map[string]bool{"rtl": true, "rtl_tcp": true, "hackrf": true}
-            if !validDevices[req.SdrDevice] {
-                _ = json.NewEncoder(w).Encode(Op25ConfigResponse{Error: "Invalid SDR device. Must be rtl, rtl_tcp, or hackrf"})
-                return
+            // Update fields only if provided (non-empty)
+            if req.SdrDevice != "" {
+                // Validate SDR device only if provided
+                validDevices := map[string]bool{"rtl": true, "rtl_tcp": true, "hackrf": true}
+                if !validDevices[req.SdrDevice] {
+                    _ = json.NewEncoder(w).Encode(Op25ConfigResponse{Error: "Invalid SDR device. Must be rtl, rtl_tcp, or hackrf"})
+                    return
+                }
+                cfg.SdrDevice = req.SdrDevice
             }
             
-            // Update config struct
-            cfg.SdrDevice = req.SdrDevice
-            cfg.SampleRate = req.SampleRate
-            cfg.LnaGain = req.LnaGain
-            cfg.TrunkFile = req.TrunkFile
+            if req.SampleRate != "" {
+                cfg.SampleRate = req.SampleRate
+            }
+            
+            if req.LnaGain != "" {
+                cfg.LnaGain = req.LnaGain
+            }
+            
+            if req.TrunkFile != "" {
+                cfg.TrunkFile = req.TrunkFile
+            }
             
             // Save to file (use absolute path since we changed working directory)
             if err := config.SaveConfig(configPath, cfg); err != nil {
@@ -400,7 +843,7 @@ func main() {
                 return
             }
             
-            log.Printf("OP25 config updated - Device: %s, Sample Rate: %s, LNA Gain: %s", cfg.SdrDevice, cfg.SampleRate, cfg.LnaGain)
+            log.Printf("OP25 config updated - Device: %s, Sample Rate: %s, LNA Gain: %s, Trunk File: %s", cfg.SdrDevice, cfg.SampleRate, cfg.LnaGain, cfg.TrunkFile)
             
             _ = json.NewEncoder(w).Encode(Op25ConfigResponse{
                 SdrDevice:  cfg.SdrDevice,
