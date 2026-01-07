@@ -917,6 +917,90 @@ func main() {
         })
     })
 
+    // Get talkgroups for current system endpoint
+    http.HandleFunc("/api/talkgroups/list", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        type Talkgroup struct {
+            ID   string `json:"id"`
+            Name string `json:"name"`
+        }
+        
+        // Get trunk file from config
+        trunkFile := cfg.TrunkFile
+        if trunkFile == "" {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":    false,
+                "error":      "No system configured",
+                "talkgroups": []Talkgroup{},
+            })
+            return
+        }
+        
+        // Extract system ID from trunk file path (e.g., systems/6643/6643_12345_trunk.tsv)
+        parts := strings.Split(trunkFile, "/")
+        if len(parts) < 2 {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":    false,
+                "error":      "Invalid trunk file path",
+                "talkgroups": []Talkgroup{},
+            })
+            return
+        }
+        
+        systemID := parts[1]
+        talkgroupFile := filepath.Join("systems", systemID, systemID+"_talkgroups.tsv")
+        
+        // Read talkgroups file
+        data, err := os.ReadFile(talkgroupFile)
+        if err != nil {
+            log.Printf("Error reading talkgroups file: %v", err)
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":    false,
+                "error":      fmt.Sprintf("Talkgroups file not found: %v", err),
+                "talkgroups": []Talkgroup{},
+            })
+            return
+        }
+        
+        // Parse TSV
+        lines := strings.Split(string(data), "\n")
+        var talkgroups []Talkgroup
+        
+        for _, line := range lines {
+            line = strings.TrimSpace(line)
+            if line == "" {
+                continue
+            }
+            
+            parts := strings.Split(line, "\t")
+            if len(parts) >= 2 {
+                talkgroups = append(talkgroups, Talkgroup{
+                    ID:   strings.TrimSpace(parts[0]),
+                    Name: strings.TrimSpace(parts[1]),
+                })
+            }
+        }
+        
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success":    true,
+            "system_id":  systemID,
+            "talkgroups": talkgroups,
+        })
+    })
+
     // Channel for shutdown
     done := make(chan struct{})
 

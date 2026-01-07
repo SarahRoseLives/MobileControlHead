@@ -1,15 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../config.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class Talkgroup {
   final String name;
-  final int id;
+  final String id;
   bool enabled;
 
   Talkgroup({
     required this.name,
     required this.id,
-    this.enabled = false,
+    this.enabled = true, // Default to enabled
   });
+
+  factory Talkgroup.fromJson(Map<String, dynamic> json) {
+    return Talkgroup(
+      id: json['id'] ?? '',
+      name: json['name'] ?? 'Unknown',
+      enabled: true,
+    );
+  }
 }
 
 class ScanGridScreen extends StatefulWidget {
@@ -18,78 +30,242 @@ class ScanGridScreen extends StatefulWidget {
 }
 
 class _ScanGridScreenState extends State<ScanGridScreen> {
-  final List<String> groupLabels = [
-    "1-9", "10-18", "19-27", "28-36", "37-45", "46-54"
-  ];
-  int selectedGroup = 0;
-  bool pendingChanges = false;
+  List<Talkgroup> _allTalkgroups = [];
+  bool _isLoading = false;
+  String? _errorMessage;
+  String? _systemId;
+  bool _pendingChanges = false;
+  int _currentPage = 0;
+  final int _itemsPerPage = 9;
 
-  List<List<Talkgroup>> allGroups = List.generate(
-    6,
-    (g) => List.generate(
-      9,
-      (i) => Talkgroup(
-        name: "TG ${g * 9 + i + 1}",
-        id: g * 9 + i + 1,
-        enabled: false,
-      ),
-    ),
-  );
+  @override
+  void initState() {
+    super.initState();
+    _loadTalkgroups();
+  }
 
-  void _restartOp25() {
+  Future<void> _loadTalkgroups() async {
     setState(() {
-      pendingChanges = false;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final appConfig = Provider.of<AppConfig>(context, listen: false);
+      final backendUrl = 'http://${appConfig.serverIp}:${AppConfig.serverPort}';
+      
+      final response = await http.get(Uri.parse('$backendUrl/api/talkgroups/list'));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          final List<dynamic> talkgroupsJson = data['talkgroups'] ?? [];
+          setState(() {
+            _systemId = data['system_id'];
+            _allTalkgroups = talkgroupsJson.map((tg) => Talkgroup.fromJson(tg)).toList();
+            _isLoading = false;
+            _currentPage = 0;
+          });
+        } else {
+          setState(() {
+            _errorMessage = data['error'] ?? 'Failed to load talkgroups';
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Server error: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error loading talkgroups: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Talkgroup> get _currentPageTalkgroups {
+    final start = _currentPage * _itemsPerPage;
+    final end = (start + _itemsPerPage).clamp(0, _allTalkgroups.length);
+    if (start >= _allTalkgroups.length) return [];
+    return _allTalkgroups.sublist(start, end);
+  }
+
+  int get _totalPages {
+    return (_allTalkgroups.length / _itemsPerPage).ceil();
+  }
+
+  Future<void> _applyChanges() async {
+    // Get enabled talkgroups
+    final enabledTalkgroups = _allTalkgroups.where((tg) => tg.enabled).toList();
+    
+    // TODO: Send whitelist to backend and restart OP25
+    
+    setState(() {
+      _pendingChanges = false;
+    });
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("Restart OP25 requested! (Implement actual logic)"),
+        content: Text('Applied ${enabledTalkgroups.length} talkgroups. Restart OP25 to apply.'),
+        backgroundColor: Colors.green,
       ),
     );
-    // TODO: Add the actual restart OP25 logic here
+  }
+
+  void _toggleAll(bool enable) {
+    setState(() {
+      for (var tg in _allTalkgroups) {
+        tg.enabled = enable;
+      }
+      _pendingChanges = true;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final talkgroups = allGroups[selectedGroup];
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF232323),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF232323),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 48),
+              SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                style: TextStyle(color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadTalkgroups,
+                child: Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_allTalkgroups.isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF232323),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.inbox, color: Colors.white54, size: 64),
+              SizedBox(height: 16),
+              Text(
+                'No system configured',
+                style: TextStyle(color: Colors.white70, fontSize: 16),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Select a system to load talkgroups',
+                style: TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final talkgroups = _currentPageTalkgroups;
 
     return Scaffold(
       backgroundColor: const Color(0xFF232323),
       body: SafeArea(
         child: Column(
           children: [
-            // Group selector bar + restart button
+            // Top bar with system info and controls
+            Container(
+              color: const Color(0xFF313131),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  // System info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'System $_systemId',
+                          style: TextStyle(
+                            color: Colors.cyanAccent,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${_allTalkgroups.where((tg) => tg.enabled).length}/${_allTalkgroups.length} enabled',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Control buttons
+                  TextButton(
+                    onPressed: () => _toggleAll(true),
+                    child: Text('Enable All', style: TextStyle(color: Colors.greenAccent)),
+                  ),
+                  TextButton(
+                    onPressed: () => _toggleAll(false),
+                    child: Text('Disable All', style: TextStyle(color: Colors.redAccent)),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.refresh, color: Colors.white70),
+                    onPressed: _loadTalkgroups,
+                  ),
+                ],
+              ),
+            ),
+            // Page navigation
             Container(
               color: const Color(0xFF313131),
               height: 48,
               child: Stack(
                 children: [
-                  // Tabs
+                  // Page tabs
                   ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: groupLabels.length,
+                    itemCount: _totalPages,
                     itemBuilder: (context, i) {
+                      final start = i * _itemsPerPage + 1;
+                      final end = ((i + 1) * _itemsPerPage).clamp(0, _allTalkgroups.length);
                       return InkWell(
-                        onTap: () => setState(() => selectedGroup = i),
+                        onTap: () => setState(() => _currentPage = i),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
                             border: Border(
                               bottom: BorderSide(
-                                color: selectedGroup == i
+                                color: _currentPage == i
                                     ? Colors.orange
                                     : Colors.transparent,
                                 width: 3,
                               ),
                             ),
-                            color: selectedGroup == i
+                            color: _currentPage == i
                                 ? const Color(0xFF444444)
                                 : const Color(0xFF313131),
                           ),
                           child: Center(
                             child: Text(
-                              groupLabels[i],
+                              '$start-$end',
                               style: TextStyle(
-                                color: selectedGroup == i
+                                color: _currentPage == i
                                     ? Colors.orange
                                     : Colors.white70,
                                 fontSize: 16,
@@ -101,8 +277,8 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                       );
                     },
                   ),
-                  // Pending Changes Button (upper right)
-                  if (pendingChanges)
+                  // Pending Changes Button
+                  if (_pendingChanges)
                     Positioned(
                       right: 8,
                       top: 6,
@@ -116,9 +292,9 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                               borderRadius: BorderRadius.circular(16)),
                           elevation: 2,
                         ),
-                        onPressed: _restartOp25,
+                        onPressed: _applyChanges,
                         child: Text(
-                          "Pending Changes, Restart OP25",
+                          "Apply Changes",
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 13.5,
@@ -129,16 +305,17 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                 ],
               ),
             ),
-            // 3x3 grid of talkgroups, always fits!
+            // 3x3 grid of talkgroups (9 per page)
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  double gridSpacing = 8.0;
+                  double gridSpacing = 6.0;
                   double totalSpacing = gridSpacing * 2; // 3 rows: 2 spaces
                   double cardHeight = (constraints.maxHeight - totalSpacing) / 3;
 
                   return GridView.builder(
                     physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(6.0),
                     itemCount: talkgroups.length,
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 3,
@@ -152,7 +329,7 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                         onTap: () {
                           setState(() {
                             tg.enabled = !tg.enabled;
-                            pendingChanges = true;
+                            _pendingChanges = true;
                           });
                         },
                         child: Card(
@@ -160,25 +337,31 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                               ? Colors.green[600]
                               : const Color(0xFF424242),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
+                              borderRadius: BorderRadius.circular(8)),
                           elevation: tg.enabled ? 3 : 1,
-                          child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(6.0),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  tg.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                    color: Colors.white,
+                                Flexible(
+                                  child: Text(
+                                    tg.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                      color: Colors.white,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 2),
                                 Text(
-                                  "ID: ${tg.id}",
+                                  "${tg.id}",
                                   style: const TextStyle(
-                                      color: Colors.white70, fontSize: 12),
+                                      color: Colors.white70, fontSize: 9),
                                 ),
                               ],
                             ),
