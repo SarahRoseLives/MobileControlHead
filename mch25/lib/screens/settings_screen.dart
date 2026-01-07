@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'radioreference_settings_screen.dart';
 import 'about_settings.dart';
 import 'manualop25config_settings.dart'; // Import the new Manual OP25 Config screen
+import 'systems_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   @override
@@ -26,6 +27,20 @@ class SettingsScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (context) => RadioReferenceSettingsScreen(),
+                ),
+              );
+            },
+          ),
+          _buildSettingsItem(
+            context,
+            icon: Icons.list_alt,
+            title: 'Systems',
+            subtitle: 'View and select downloaded systems.',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SystemsSettingsScreen(),
                 ),
               );
             },

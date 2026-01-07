@@ -856,6 +856,67 @@ func main() {
         }
     })
 
+    // List available systems endpoint
+    http.HandleFunc("/api/systems/list", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        type SystemInfo struct {
+            SystemID string                   `json:"system_id"`
+            Sites    []map[string]interface{} `json:"sites"`
+        }
+        
+        systemsDir := "systems"
+        entries, err := os.ReadDir(systemsDir)
+        if err != nil {
+            log.Printf("Error reading systems directory: %v", err)
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": true,
+                "systems": []SystemInfo{},
+            })
+            return
+        }
+        
+        var systems []SystemInfo
+        for _, entry := range entries {
+            if !entry.IsDir() {
+                continue
+            }
+            
+            systemID := entry.Name()
+            metadataPath := filepath.Join(systemsDir, systemID, systemID+"_sites.json")
+            
+            var sites []map[string]interface{}
+            data, err := os.ReadFile(metadataPath)
+            if err == nil {
+                if err := json.Unmarshal(data, &sites); err != nil {
+                    log.Printf("Error parsing metadata for system %s: %v", systemID, err)
+                }
+            }
+            
+            systems = append(systems, SystemInfo{
+                SystemID: systemID,
+                Sites:    sites,
+            })
+        }
+        
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success": true,
+            "systems": systems,
+        })
+    })
+
     // Channel for shutdown
     done := make(chan struct{})
 
