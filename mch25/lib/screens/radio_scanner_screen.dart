@@ -4,6 +4,7 @@ import '../config.dart';
 import '../service/mdns_scanner_service.dart';
 import '../service/op25_api_service.dart';
 import '../audio/audio_metadata_service.dart';
+import '../service/talkgroup_service.dart';
 import 'log_screen.dart';
 import 'scan_grid_screen.dart';
 import 'settings_screen.dart';
@@ -140,13 +141,22 @@ class ScannerScreen extends StatelessWidget {
     // Watch services for talkgroup data
     final apiService = context.watch<Op25ApiService>();
     final audioMetadata = context.watch<AudioMetadataService>();
+    final talkgroupService = context.watch<TalkgroupService>();
 
     // ---- START: DATA LOGIC ----
 
     // Prefer audio metadata (synchronized with audio) over API polling
     final sourceId = audioMetadata.sourceId ?? apiService.talkgroupData?.srcid ?? 0;
     final talkgroupIdValue = audioMetadata.talkgroupId ?? apiService.talkgroupData?.tgid ?? 0;
-    final talkgroup = talkgroupIdValue > 0 ? 'Talkgroup $talkgroupIdValue' : 'Scanning...';
+    
+    // Get talkgroup name from service
+    String talkgroup;
+    if (talkgroupIdValue > 0) {
+      final tgName = talkgroupService.getTalkgroupName(talkgroupIdValue);
+      talkgroup = '$tgName';
+    } else {
+      talkgroup = 'Scanning...';
+    }
 
     // Get trunk info for system details
     final trunkInfo = apiService.data?.trunkInfo;

@@ -14,6 +14,7 @@ import 'audio/audio_metadata_service.dart';
 import 'service/op25_api_service.dart';
 import 'service/op25_control_service.dart';
 import 'service/radioreference_service.dart';
+import 'service/talkgroup_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,7 @@ void main() {
   final audioMetadataService = AudioMetadataService();
   final op25ApiService = Op25ApiService();
   final op25ControlService = Op25ControlService();
+  final talkgroupService = TalkgroupService();
 
   // Start discovery
   mDNScanner.startDiscovery(appConfig);
@@ -48,6 +50,9 @@ void main() {
 
   // Initialize the OP25 Control Service
   op25ControlService.initialize(appConfig);
+  
+  // Start talkgroup service
+  talkgroupService.start(appConfig);
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
@@ -63,6 +68,7 @@ void main() {
           ChangeNotifierProvider.value(value: op25ApiService),
           ChangeNotifierProvider.value(value: op25ControlService),
           ChangeNotifierProvider(create: (_) => RadioReferenceService()),
+          ChangeNotifierProvider.value(value: talkgroupService),
         ],
         child: MobileRadioScannerApp(),
       ),
