@@ -44,6 +44,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   xml: ^6.3.0
   audioplayers: ^6.0.0
+  wakelock_plus: ^1.2.8  # Keep screen awake
 
 dev_dependencies:
   flutter_test:

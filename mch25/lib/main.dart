@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'dart:async';
 
 import 'config.dart';
@@ -16,6 +17,9 @@ import 'service/radioreference_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Enable wakelock to keep screen on
+  WakelockPlus.enable();
 
   // --- Instantiate services ---
   final appConfig = AppConfig();
