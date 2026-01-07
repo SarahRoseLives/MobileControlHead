@@ -252,6 +252,23 @@ func main() {
         }
         audioBroadcaster.ServeWAV(w, r)
     })
+    
+    // HLS endpoints
+    http.HandleFunc("/audio.m3u8", func(w http.ResponseWriter, r *http.Request) {
+        if audioBroadcaster == nil {
+            http.Error(w, "Audio not broadcasting (OP25 not started)", http.StatusServiceUnavailable)
+            return
+        }
+        audioBroadcaster.HLS.ServePlaylist(w, r)
+    })
+    http.HandleFunc("/audio/", func(w http.ResponseWriter, r *http.Request) {
+        if audioBroadcaster == nil {
+            http.Error(w, "Audio not broadcasting (OP25 not started)", http.StatusServiceUnavailable)
+            return
+        }
+        audioBroadcaster.HLS.ServeSegment(w, r)
+    })
+    
     http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
         if logBroadcaster == nil {
             http.Error(w, "Logs not broadcasting (OP25 not started)", http.StatusServiceUnavailable)

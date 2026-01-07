@@ -26,22 +26,26 @@ type Broadcaster struct {
     SampleRate int
     Channels   int
     tgGetter   TalkgroupGetter
+    HLS        *HLSBroadcaster  // HLS streamer (exported)
 }
 
 func NewBroadcaster(udpAddr string) *Broadcaster {
-    return &Broadcaster{
+    b := &Broadcaster{
         udpAddr:    udpAddr,
         clients:    make(map[chan []byte]struct{}),
         quit:       make(chan struct{}),
         SampleRate: 8000,
         Channels:   1,
     }
+    b.HLS = NewHLSBroadcaster(b.SampleRate, b.Channels)
+    return b
 }
 
 func (a *Broadcaster) SetTalkgroupGetter(tg TalkgroupGetter) {
     a.mu.Lock()
     defer a.mu.Unlock()
     a.tgGetter = tg
+    a.HLS.SetTalkgroupGetter(tg)
 }
 
 func (a *Broadcaster) Start() {
@@ -92,6 +96,10 @@ func (a *Broadcaster) Start() {
 func (a *Broadcaster) broadcast(data []byte) {
     a.mu.Lock()
     defer a.mu.Unlock()
+    
+    // Feed HLS broadcaster
+    a.HLS.AddAudioData(data)
+    
     for ch := range a.clients {
         select {
         case ch <- append([]byte{}, data...):
@@ -104,6 +112,9 @@ func (a *Broadcaster) ServeWAV(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "audio/wav")
     w.Header().Set("Cache-Control", "no-cache")
     w.Header().Set("Connection", "keep-alive")
+    // Add a large fake content-length to make Android MediaPlayer happy
+    // It expects a finite stream length even for live audio
+    w.Header().Set("Content-Length", "999999999")
     
     // Add talkgroup metadata headers
     a.mu.Lock()
