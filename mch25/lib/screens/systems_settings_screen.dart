@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../config.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
+import 'dart:math' show cos, sqrt, asin;
 
 class SystemsSettingsScreen extends StatefulWidget {
   @override
@@ -13,11 +15,46 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
   List<SystemInfo> _systems = [];
   bool _isLoading = false;
   String? _errorMessage;
+  Position? _userLocation;
+  bool _locationPermissionGranted = false;
 
   @override
   void initState() {
     super.initState();
+    _checkLocationPermission();
     _loadSystems();
+  }
+
+  Future<void> _checkLocationPermission() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      if (permission == LocationPermission.whileInUse || 
+          permission == LocationPermission.always) {
+        _locationPermissionGranted = true;
+        _userLocation = await Geolocator.getCurrentPosition(
+          locationSettings: LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 5),
+          ),
+        );
+        setState(() {});
+      }
+    } catch (e) {
+      print('Error getting location: $e');
+    }
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    // Haversine formula to calculate distance between two coordinates
+    const p = 0.017453292519943295; // Pi/180
+    final a = 0.5 - cos((lat2 - lat1) * p) / 2 + 
+              cos(lat1 * p) * cos(lat2 * p) * 
+              (1 - cos((lon2 - lon1) * p)) / 2;
+    return 12742 * asin(sqrt(a)); // 2 * R; R = 6371 km
   }
 
   Future<void> _loadSystems() async {
@@ -38,6 +75,28 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
           final List<dynamic> systemsJson = data['systems'] ?? [];
           setState(() {
             _systems = systemsJson.map((s) => SystemInfo.fromJson(s)).toList();
+            
+            // Sort sites by distance if location is available
+            if (_userLocation != null && _locationPermissionGranted) {
+              for (var system in _systems) {
+                system.sites.sort((a, b) {
+                  final distA = _calculateDistance(
+                    _userLocation!.latitude, 
+                    _userLocation!.longitude,
+                    double.tryParse(a.latitude) ?? 0,
+                    double.tryParse(a.longitude) ?? 0,
+                  );
+                  final distB = _calculateDistance(
+                    _userLocation!.latitude, 
+                    _userLocation!.longitude,
+                    double.tryParse(b.latitude) ?? 0,
+                    double.tryParse(b.longitude) ?? 0,
+                  );
+                  return distA.compareTo(distB);
+                });
+              }
+            }
+            
             _isLoading = false;
           });
         } else {
@@ -194,6 +253,21 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
           style: const TextStyle(color: Colors.white70),
         ),
         children: system.sites.map((site) {
+          String distanceText = '';
+          if (_userLocation != null && _locationPermissionGranted) {
+            final distance = _calculateDistance(
+              _userLocation!.latitude,
+              _userLocation!.longitude,
+              double.tryParse(site.latitude) ?? 0,
+              double.tryParse(site.longitude) ?? 0,
+            );
+            if (distance < 1) {
+              distanceText = ' • ${(distance * 1000).toStringAsFixed(0)}m away';
+            } else {
+              distanceText = ' • ${distance.toStringAsFixed(1)}km away';
+            }
+          }
+          
           return ListTile(
             leading: const Icon(Icons.location_on, color: Colors.greenAccent, size: 20),
             title: Text(
@@ -201,7 +275,7 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
               style: const TextStyle(color: Colors.white),
             ),
             subtitle: Text(
-              'Site ID: ${site.siteId}',
+              'Site ID: ${site.siteId}$distanceText',
               style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),
             trailing: ElevatedButton(

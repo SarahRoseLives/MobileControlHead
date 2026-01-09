@@ -45,6 +45,7 @@ dependencies:
   xml: ^6.3.0
   audioplayers: ^6.0.0
   wakelock_plus: ^1.2.8  # Keep screen awake
+  geolocator: ^13.0.2  # GPS location for sorting sites
 
 dev_dependencies:
   flutter_test:
