@@ -1,10 +1,10 @@
-// lib/screens/radioreference_settings_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config.dart';
 import '../service/radioreference_service.dart';
 import 'settings_category.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 
 class RadioReferenceSettingsScreen extends StatefulWidget {
   @override
@@ -18,6 +18,7 @@ class _RadioReferenceSettingsScreenState
   final _passwordController = TextEditingController();
   final _zipcodeController = TextEditingController();
   final _systemIdController = TextEditingController();
+  bool _isLoadingLocation = false;
 
   @override
   void initState() {
@@ -146,6 +147,93 @@ class _RadioReferenceSettingsScreenState
     }
   }
 
+  Future<void> _getZipCodeFromGPS() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+
+    try {
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      if (permission == LocationPermission.denied || 
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location permission denied'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        setState(() {
+          _isLoadingLocation = false;
+        });
+        return;
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+
+      // Reverse geocode to get address
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        final placemark = placemarks.first;
+        final zipCode = placemark.postalCode;
+        
+        if (zipCode != null && zipCode.isNotEmpty) {
+          setState(() {
+            _zipcodeController.text = zipCode;
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Found zip code: $zipCode'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not determine zip code from location'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getting location: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error getting location: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoadingLocation = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -228,12 +316,48 @@ class _RadioReferenceSettingsScreenState
                 title: 'Discover Local Systems',
                 icon: Icons.location_on,
               ),
-              _buildCredentialTile(
-                'Zip Code',
-                _zipcodeController,
-                Icons.pin_drop,
-                false,
-                keyboardType: TextInputType.number,
+              // Zip code field with GPS button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildCredentialTile(
+                        'Zip Code',
+                        _zipcodeController,
+                        Icons.pin_drop,
+                        false,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // GPS button
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      child: ElevatedButton(
+                        onPressed: _isLoadingLocation ? null : _getZipCodeFromGPS,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.greenAccent,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.all(16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: _isLoadingLocation
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation(Colors.black),
+                                ),
+                              )
+                            : const Icon(Icons.my_location, size: 24),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               Padding(
                 padding:
