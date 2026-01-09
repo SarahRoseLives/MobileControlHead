@@ -15,6 +15,7 @@ import 'service/op25_api_service.dart';
 import 'service/op25_control_service.dart';
 import 'service/radioreference_service.dart';
 import 'service/talkgroup_service.dart';
+import 'service/gps_site_hopping_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,7 @@ void main() {
   final op25ApiService = Op25ApiService();
   final op25ControlService = Op25ControlService();
   final talkgroupService = TalkgroupService();
+  final gpsSiteHoppingService = GpsSiteHoppingService(appConfig);
 
   // Start discovery
   mDNScanner.startDiscovery(appConfig);
@@ -69,6 +71,7 @@ void main() {
           ChangeNotifierProvider.value(value: op25ControlService),
           ChangeNotifierProvider(create: (_) => RadioReferenceService()),
           ChangeNotifierProvider.value(value: talkgroupService),
+          ChangeNotifierProvider.value(value: gpsSiteHoppingService),
         ],
         child: MobileRadioScannerApp(),
       ),

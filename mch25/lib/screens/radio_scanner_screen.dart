@@ -5,6 +5,7 @@ import '../service/mdns_scanner_service.dart';
 import '../service/op25_api_service.dart';
 import '../audio/audio_metadata_service.dart';
 import '../service/talkgroup_service.dart';
+import '../service/gps_site_hopping_service.dart';
 import 'log_screen.dart';
 import 'scan_grid_screen.dart';
 import 'settings_screen.dart';
@@ -142,6 +143,7 @@ class ScannerScreen extends StatelessWidget {
     final apiService = context.watch<Op25ApiService>();
     final audioMetadata = context.watch<AudioMetadataService>();
     final talkgroupService = context.watch<TalkgroupService>();
+    final gpsService = context.watch<GpsSiteHoppingService>();
 
     // ---- START: DATA LOGIC ----
 
@@ -198,6 +200,39 @@ class ScannerScreen extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
+                  // GPS Hopping indicator
+                  if (gpsService.isEnabled)
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      margin: EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.my_location, size: 14, color: Colors.greenAccent),
+                          SizedBox(width: 4),
+                          Text(
+                            'GPS',
+                            style: TextStyle(fontSize: 11, color: Colors.greenAccent),
+                          ),
+                          if (gpsService.isHopping) ...[
+                            SizedBox(width: 4),
+                            SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation(Colors.greenAccent),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   TimeDisplayLandscape(fontSize: 18),
                 ],
               ),

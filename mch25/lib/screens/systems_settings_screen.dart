@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'dart:math' show cos, sqrt, asin;
+import '../service/gps_site_hopping_service.dart';
 
 class SystemsSettingsScreen extends StatefulWidget {
   @override
@@ -44,7 +45,7 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
         setState(() {});
       }
     } catch (e) {
-      print('Error getting location: $e');
+      debugPrint('Error getting location: $e');
     }
   }
 
@@ -169,12 +170,67 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final gpsService = Provider.of<GpsSiteHoppingService>(context);
+    
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Downloaded Systems'),
+        title: Row(
+          children: [
+            const Text('Downloaded Systems'),
+            if (gpsService.isEnabled) ...[
+              SizedBox(width: 12),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.my_location, size: 14, color: Colors.greenAccent),
+                    SizedBox(width: 4),
+                    Text(
+                      'GPS Hopping',
+                      style: TextStyle(fontSize: 12, color: Colors.greenAccent),
+                    ),
+                    if (gpsService.isHopping) ...[
+                      SizedBox(width: 4),
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(Colors.greenAccent),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
         backgroundColor: Colors.black,
         actions: [
+          if (gpsService.isEnabled)
+            IconButton(
+              icon: const Icon(Icons.location_off, color: Colors.redAccent),
+              onPressed: () async {
+                await gpsService.stopHopping();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('GPS Site Hopping disabled'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+              },
+              tooltip: 'Disable GPS Hopping',
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadSystems,
@@ -235,24 +291,74 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
   }
 
   Widget _buildSystemCard(SystemInfo system) {
+    final gpsService = Provider.of<GpsSiteHoppingService>(context);
+    
     return Card(
       color: Colors.white.withOpacity(0.1),
       margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-      child: ExpansionTile(
-        leading: const Icon(Icons.cell_tower, color: Colors.cyanAccent),
-        title: Text(
-          'System ${system.systemId}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+      child: Column(
+        children: [
+          // GPS Hopping Toggle Bar
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.3),
+              border: Border(bottom: BorderSide(color: Colors.white10)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.my_location, size: 18, color: Colors.greenAccent),
+                SizedBox(width: 8),
+                Text(
+                  'GPS Site Hopping',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                Spacer(),
+                Switch(
+                  value: gpsService.isEnabled,
+                  activeColor: Colors.greenAccent,
+                  onChanged: (value) async {
+                    if (value) {
+                      await gpsService.startHopping(system.systemId);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('GPS Site Hopping enabled'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } else {
+                      await gpsService.stopHopping();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('GPS Site Hopping disabled'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
-        subtitle: Text(
-          '${system.sites.length} site(s) available',
-          style: const TextStyle(color: Colors.white70),
-        ),
-        children: system.sites.map((site) {
+          ExpansionTile(
+            leading: const Icon(Icons.cell_tower, color: Colors.cyanAccent),
+            title: Text(
+              'System ${system.systemId}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: Text(
+              '${system.sites.length} site(s) available',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            children: system.sites.map((site) {
           String distanceText = '';
           if (_userLocation != null && _locationPermissionGranted) {
             final distance = _calculateDistance(
@@ -292,6 +398,8 @@ class _SystemsSettingsScreenState extends State<SystemsSettingsScreen> {
             ),
           );
         }).toList(),
+      ),
+        ],
       ),
     );
   }

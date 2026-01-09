@@ -1,5 +1,7 @@
 package com.example.mch25
 
+import android.content.Context
+import android.media.AudioManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -7,11 +9,13 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.mch25/audio"
     private var audioPlayer: AudioStreamPlayer? = null
+    private var audioManager: AudioManager? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
-        audioPlayer = AudioStreamPlayer()
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioPlayer = AudioStreamPlayer(audioManager!!)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -38,3 +42,4 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 }
+

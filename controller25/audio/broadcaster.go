@@ -8,6 +8,7 @@ import (
     "net/http"
     "strings"
     "sync"
+    "time"
 )
 
 type TalkgroupGetter interface {
@@ -112,9 +113,7 @@ func (a *Broadcaster) ServeWAV(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "audio/wav")
     w.Header().Set("Cache-Control", "no-cache")
     w.Header().Set("Connection", "keep-alive")
-    // Add a large fake content-length to make Android MediaPlayer happy
-    // It expects a finite stream length even for live audio
-    w.Header().Set("Content-Length", "999999999")
+    // Don't set Content-Length for infinite streaming - use chunked transfer encoding
     
     // Add talkgroup metadata headers
     a.mu.Lock()
@@ -151,6 +150,12 @@ func (a *Broadcaster) ServeWAV(w http.ResponseWriter, r *http.Request) {
     }()
 
     notify := r.Context().Done()
+    ticker := time.NewTicker(50 * time.Millisecond)
+    defer ticker.Stop()
+    
+    silence := make([]byte, 160*2) // 20ms of silence
+    lastDataTime := time.Now()
+    
     for {
         select {
         case data := <-ch:
@@ -158,6 +163,15 @@ func (a *Broadcaster) ServeWAV(w http.ResponseWriter, r *http.Request) {
                 return
             }
             flusher.Flush()
+            lastDataTime = time.Now()
+        case <-ticker.C:
+            // Send silence if no data for 100ms
+            if time.Since(lastDataTime) > 100*time.Millisecond {
+                if _, err := w.Write(silence); err != nil {
+                    return
+                }
+                flusher.Flush()
+            }
         case <-notify:
             return
         }

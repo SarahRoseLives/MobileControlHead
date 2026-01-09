@@ -15,7 +15,7 @@ class AppConfig extends ChangeNotifier {
   }
 
   // URLs for services on the main server (port 9000)
-  String get audioUrl => "http://$_serverIp:$serverPort/audio.wav";  // Native player uses WAV
+  String get audioUrl => "http://$_serverIp:$serverPort/audio.wav";  // WAV stream for audio players
   String get logStreamUrl => "http://$_serverIp:$serverPort/stream";
   String get op25ControlApiUrl => "http://$_serverIp:$serverPort/"; // For start/stop/status
 
