@@ -205,9 +205,10 @@ class _TalkgroupManagementScreenState extends State<TalkgroupManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
-              ? 'Talkgroup lists saved successfully!'
+              ? 'Talkgroup lists saved and OP25 restarted!'
               : 'Failed to save talkgroup lists'),
           backgroundColor: success ? Colors.green : Colors.red,
+          duration: Duration(seconds: 3),
         ),
       );
     }

@@ -1168,9 +1168,72 @@ func main() {
         log.Printf("Updated lists for system %s - Whitelist: %d, Blacklist: %d", 
                    systemID, len(req.Whitelist), len(req.Blacklist))
         
+        // Restart OP25 to apply changes if it's currently running
+        op25.mu.Lock()
+        wasRunning := op25.running
+        op25.mu.Unlock()
+        
+        if wasRunning {
+            log.Println("Restarting OP25 to apply talkgroup list changes...")
+            
+            // Clean up any existing OP25 processes first
+            killExistingOP25Processes()
+            
+            op25.mu.Lock()
+            
+            // Stop current instance
+            if op25.running {
+                stopOp25(&audioBroadcaster, &logBroadcaster)
+                // Give time for UDP port to be fully released
+                time.Sleep(500 * time.Millisecond)
+            }
+            
+            // Build flags from config
+            flags := config.BuildOP25Flags(cfg)
+            log.Printf("Restarting OP25 with flags: %v", flags)
+            
+            // Start audio broadcaster BEFORE OP25 to ensure UDP listener is ready
+            audioBroadcaster = audio.NewBroadcaster("127.0.0.1:23456")
+            audioBroadcaster.SetTalkgroupGetter(tgParser)
+            go audioBroadcaster.Start()
+            
+            // Give audio broadcaster time to bind to UDP port
+            time.Sleep(100 * time.Millisecond)
+            
+            // Start OP25 with config-based flags
+            op25Cmd, stdoutPipe, stderrPipe, err := config.StartOp25ProcessUDPWithFlags(flags)
+            if err != nil {
+                // Clean up audio broadcaster if OP25 fails to start
+                audioBroadcaster.Shutdown()
+                audioBroadcaster = nil
+                op25.mu.Unlock()
+                _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                    "success": false,
+                    "error":   fmt.Sprintf("Failed to restart OP25: %v", err),
+                })
+                return
+            }
+            
+            op25.cmdObj = op25Cmd
+            op25.stdoutPipe = stdoutPipe
+            op25.stderrPipe = stderrPipe
+            op25.running = true
+            op25.flags = flags
+            
+            // Start log broadcaster
+            logBroadcaster = logstream.NewBroadcaster(stdoutPipe, stderrPipe)
+            logBroadcaster.SetParser(tgParser)
+            go logBroadcaster.Start()
+            
+            op25.mu.Unlock()
+            
+            log.Println("OP25 restarted successfully with new talkgroup lists")
+        }
+        
         _ = json.NewEncoder(w).Encode(map[string]interface{}{
-            "success": true,
-            "message": "Lists updated successfully",
+            "success":   true,
+            "message":   "Lists updated successfully",
+            "restarted": wasRunning,
         })
     })
 

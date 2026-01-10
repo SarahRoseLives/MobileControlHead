@@ -157,11 +157,18 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
             _pendingChanges = false;
           });
           
+          final wasRestarted = data['restarted'] ?? false;
+          
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Saved ${whitelist.length} enabled, ${blacklist.length} disabled talkgroups'),
+                content: Text(
+                  wasRestarted
+                    ? 'Saved ${whitelist.length} enabled, ${blacklist.length} disabled. OP25 restarted!'
+                    : 'Saved ${whitelist.length} enabled, ${blacklist.length} disabled'
+                ),
                 backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
               ),
             );
           }

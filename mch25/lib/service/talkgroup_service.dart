@@ -161,7 +161,8 @@ class TalkgroupService extends ChangeNotifier {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] == true) {
-          debugPrint('TalkgroupService: Lists saved successfully');
+          final wasRestarted = data['restarted'] ?? false;
+          debugPrint('TalkgroupService: Lists saved successfully${wasRestarted ? " and OP25 restarted" : ""}');
           return true;
         }
       }
