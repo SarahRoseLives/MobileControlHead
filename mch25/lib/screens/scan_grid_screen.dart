@@ -39,7 +39,7 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
   String? _systemId;
   bool _pendingChanges = false;
   int _currentPage = 0;
-  final int _itemsPerPage = 9;
+  int _itemsPerPage = 9; // Will be dynamically updated based on screen size
   String? _selectedCategory; // null = show all
 
   @override
@@ -402,74 +402,102 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
             Container(
               color: const Color(0xFF313131),
               height: 48,
-              child: Stack(
-                children: [
-                  // Page tabs
-                  ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _totalPages,
-                    itemBuilder: (context, i) {
-                      final start = i * _itemsPerPage + 1;
-                      final end = ((i + 1) * _itemsPerPage).clamp(0, _allTalkgroups.length);
-                      return InkWell(
-                        onTap: () => setState(() => _currentPage = i),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
+              child: LayoutBuilder(
+                builder: (context, navConstraints) {
+                  // Calculate the same items per page as the grid will
+                  // We need to estimate based on available space
+                  final screenWidth = MediaQuery.of(context).size.width;
+                  final screenHeight = MediaQuery.of(context).size.height - 200; // Approximate grid height
+                  
+                  int crossAxisCount = (screenWidth / 140).floor().clamp(2, 4);
+                  double cardHeight = 100;
+                  int rowCount = (screenHeight / (cardHeight + 6)).floor();
+                  final dynamicItemsPerPage = crossAxisCount * rowCount;
+                  
+                  // Update the state variable
+                  if (_itemsPerPage != dynamicItemsPerPage) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        setState(() {
+                          _itemsPerPage = dynamicItemsPerPage;
+                        });
+                      }
+                    });
+                  }
+                  
+                  // Calculate total pages based on filtered talkgroups
+                  final totalPages = (_filteredTalkgroups.length / dynamicItemsPerPage).ceil();
+                  
+                  return Stack(
+                    children: [
+                      // Page tabs
+                      ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: totalPages,
+                        itemBuilder: (context, i) {
+                          final start = i * dynamicItemsPerPage + 1;
+                          final end = ((i + 1) * dynamicItemsPerPage).clamp(0, _filteredTalkgroups.length);
+                          return InkWell(
+                            onTap: () => setState(() => _currentPage = i),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: _currentPage == i
+                                        ? Colors.orange
+                                        : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                ),
                                 color: _currentPage == i
-                                    ? Colors.orange
-                                    : Colors.transparent,
-                                width: 3,
+                                    ? const Color(0xFF444444)
+                                    : const Color(0xFF313131),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '$start-$end',
+                                  style: TextStyle(
+                                    color: _currentPage == i
+                                        ? Colors.orange
+                                        : Colors.white70,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ),
-                            color: _currentPage == i
-                                ? const Color(0xFF444444)
-                                : const Color(0xFF313131),
-                          ),
-                          child: Center(
-                            child: Text(
-                              '$start-$end',
-                              style: TextStyle(
-                                color: _currentPage == i
-                                    ? Colors.orange
-                                    : Colors.white70,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  // Pending Changes Button
-                  if (_pendingChanges)
-                    Positioned(
-                      right: 8,
-                      top: 6,
-                      bottom: 6,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.black,
-                          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                          elevation: 2,
-                        ),
-                        onPressed: _applyChanges,
-                        child: Text(
-                          "Apply Changes",
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
-                          ),
-                        ),
+                          );
+                        },
                       ),
-                    ),
-                ],
+                      // Pending Changes Button
+                      if (_pendingChanges)
+                        Positioned(
+                          right: 8,
+                          top: 6,
+                          bottom: 6,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.black,
+                              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                              elevation: 2,
+                            ),
+                            onPressed: _applyChanges,
+                            child: Text(
+                              "Apply Changes",
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
             // Dynamic grid of talkgroups - fills available space
