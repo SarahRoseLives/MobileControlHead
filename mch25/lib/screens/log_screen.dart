@@ -239,31 +239,33 @@ class _LogScreenState extends State<LogScreen> {
     // If OP25 is not running, show a dedicated message.
     if (!isOp25Running) {
       return Scaffold(
-        backgroundColor: Colors.black,
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.power_off_outlined,
-                      color: Colors.white54, size: 48),
-                  const SizedBox(height: 16),
-                  const Text(
-                    "OP25 Not Running",
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "Start OP25 from the Settings screen to see logs.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-                ],
+        body: Container(
+          decoration: AppTheme.gradientBackground,
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.power_off_outlined,
+                        color: Colors.white54, size: 48),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "OP25 Not Running",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Start OP25 from the Settings screen to see logs.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -273,9 +275,10 @@ class _LogScreenState extends State<LogScreen> {
 
     // If OP25 is running, show the standard log screen UI.
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Column(
+      body: Container(
+        decoration: AppTheme.gradientBackground,
+        child: SafeArea(
+          child: Column(
           children: [
             if (!_connected)
               Container(
@@ -338,7 +341,8 @@ class _LogScreenState extends State<LogScreen> {
                   tooltip: "Scroll to bottom",
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );

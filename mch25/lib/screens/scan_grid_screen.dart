@@ -277,72 +277,58 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
 
   @override
   Widget build(BuildContext context) {
+    Widget bodyContent;
+    
     if (_isLoading) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF232323),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF232323),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, color: Colors.red, size: 48),
-              SizedBox(height: 16),
-              Text(
-                _errorMessage!,
-                style: TextStyle(color: Colors.red),
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadTalkgroups,
-                child: Text('Retry'),
-              ),
-            ],
-          ),
+      bodyContent = Center(child: CircularProgressIndicator());
+    } else if (_errorMessage != null) {
+      bodyContent = Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 48),
+            SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadTalkgroups,
+              child: Text('Retry'),
+            ),
+          ],
         ),
       );
-    }
-
-    if (_allTalkgroups.isEmpty) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF232323),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.inbox, color: Colors.white54, size: 64),
-              SizedBox(height: 16),
-              Text(
-                'No system configured',
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Select a system to load talkgroups',
-                style: TextStyle(color: Colors.white54, fontSize: 14),
-              ),
-            ],
-          ),
+    } else if (_allTalkgroups.isEmpty) {
+      bodyContent = Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox, color: Colors.white54, size: 64),
+            SizedBox(height: 16),
+            Text(
+              'No system configured',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Select a system to load talkgroups',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+          ],
         ),
       );
-    }
-
-    final talkgroups = _currentPageTalkgroups;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF232323),
-      body: SafeArea(
+    } else {
+      final talkgroups = _currentPageTalkgroups;
+      
+      bodyContent = SafeArea(
         child: Column(
           children: [
             // Top bar with system info and controls
             Container(
-              color: const Color(0xFF313131),
+              color: Colors.black.withValues(alpha: 0.3),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
@@ -602,6 +588,13 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
             ),
           ],
         ),
+      );
+    }
+
+    return Scaffold(
+      body: Container(
+        decoration: AppTheme.gradientBackground,
+        child: bodyContent,
       ),
     );
   }

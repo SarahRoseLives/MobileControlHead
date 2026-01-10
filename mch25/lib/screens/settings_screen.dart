@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config.dart';
 import 'radioreference_settings_screen.dart';
 import 'about_settings.dart';
 import 'manualop25config_settings.dart'; // Import the new Manual OP25 Config screen
@@ -9,14 +10,15 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: ListView(
-        children: [
+      body: Container(
+        decoration: AppTheme.gradientBackground,
+        child: ListView(
+          children: [
           _sectionHeader('Radio Reference'),
           _buildSettingsItem(
             context,
@@ -102,7 +104,8 @@ class SettingsScreen extends StatelessWidget {
               );
             },
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

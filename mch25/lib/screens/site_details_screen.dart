@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config.dart';
 import '../service/op25_api_service.dart';
 import 'package:intl/intl.dart';
 import '../service/op25_control_service.dart'; // Import the control service
@@ -98,9 +99,11 @@ class SiteDetailsScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: bodyWidget,
+      body: Container(
+        decoration: AppTheme.gradientBackground,
+        child: SafeArea(
+          child: bodyWidget,
+        ),
       ),
     );
   }

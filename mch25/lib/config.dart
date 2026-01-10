@@ -1,4 +1,21 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+// Shared UI constants
+class AppTheme {
+  // Consistent gradient background for all screens
+  static const gradientBackground = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color(0xFF1a1a1a),
+        Color(0xFF202020),
+        Color(0xFF2a2a2a),
+      ],
+    ),
+  );
+}
 
 class AppConfig extends ChangeNotifier {
   String _serverIp = "192.168.1.240";
