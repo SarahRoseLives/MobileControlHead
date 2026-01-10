@@ -6,6 +6,7 @@ import '../config.dart';
 
 class TalkgroupService extends ChangeNotifier {
   Map<String, String> _talkgroupNames = {}; // tgid -> name
+  Map<String, TalkgroupMetadata> _talkgroupMetadata = {}; // tgid -> metadata
   Set<String> _whitelist = {}; // enabled talkgroups
   Set<String> _blacklist = {}; // disabled talkgroups
   String? _currentSystemId;
@@ -14,6 +15,26 @@ class TalkgroupService extends ChangeNotifier {
   String getTalkgroupName(int tgid) {
     final name = _talkgroupNames[tgid.toString()];
     return name ?? 'Unknown';
+  }
+  
+  String? getTalkgroupCategory(int tgid) {
+    final metadata = _talkgroupMetadata[tgid.toString()];
+    return metadata?.category;
+  }
+  
+  String? getTalkgroupTag(int tgid) {
+    final metadata = _talkgroupMetadata[tgid.toString()];
+    return metadata?.tag;
+  }
+  
+  Set<String> get allCategories {
+    final categories = <String>{};
+    for (var meta in _talkgroupMetadata.values) {
+      if (meta.category != null && meta.category!.isNotEmpty) {
+        categories.add(meta.category!);
+      }
+    }
+    return categories;
   }
   
   bool get hasData => _talkgroupNames.isNotEmpty;
@@ -38,11 +59,13 @@ class TalkgroupService extends ChangeNotifier {
   void start(AppConfig config) {
     _loadTalkgroups(config);
     _loadLists(config);
+    _loadMetadata(config);
     
     // Refresh talkgroups every 60 seconds in case system changes
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       _loadTalkgroups(config);
       _loadLists(config);
+      _loadMetadata(config);
     });
   }
   
@@ -112,6 +135,36 @@ class TalkgroupService extends ChangeNotifier {
     }
   }
   
+  Future<void> _loadMetadata(AppConfig config) async {
+    try {
+      final serverIp = config.serverIp;
+      if (serverIp.isEmpty) return;
+      
+      final url = 'http://$serverIp:${AppConfig.serverPort}/api/talkgroups/metadata';
+      final response = await http.get(Uri.parse(url));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          final Map<String, dynamic> metadata = Map<String, dynamic>.from(data['metadata'] ?? {});
+          
+          _talkgroupMetadata.clear();
+          metadata.forEach((key, value) {
+            if (value is Map<String, dynamic>) {
+              _talkgroupMetadata[key] = TalkgroupMetadata.fromJson(value);
+            }
+          });
+          
+          notifyListeners();
+          
+          debugPrint('TalkgroupService: Loaded metadata for ${_talkgroupMetadata.length} talkgroups');
+        }
+      }
+    } catch (e) {
+      debugPrint('TalkgroupService: Error loading metadata: $e');
+    }
+  }
+  
   Future<bool> toggleTalkgroup(String tgid, bool enabled) async {
     if (enabled) {
       // Add to whitelist, remove from blacklist
@@ -178,5 +231,28 @@ class TalkgroupService extends ChangeNotifier {
   void dispose() {
     _refreshTimer?.cancel();
     super.dispose();
+  }
+}
+
+class TalkgroupMetadata {
+  final String? category;
+  final String? tag;
+  final bool encrypted;
+  final String? mode;
+
+  TalkgroupMetadata({
+    this.category,
+    this.tag,
+    this.encrypted = false,
+    this.mode,
+  });
+
+  factory TalkgroupMetadata.fromJson(Map<String, dynamic> json) {
+    return TalkgroupMetadata(
+      category: json['category'] as String?,
+      tag: json['tag'] as String?,
+      encrypted: json['encrypted'] as bool? ?? false,
+      mode: json['mode'] as String?,
+    );
   }
 }

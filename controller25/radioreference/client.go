@@ -73,9 +73,14 @@ type GetTrsTalkgroupsResponse struct {
 }
 
 type Talkgroup struct {
-	TgDec   string `xml:"tgDec"`
-	TgAlpha string `xml:"tgAlpha"`
-	Enc     string `xml:"enc"`
+	TgDec      string `xml:"tgDec"`
+	TgAlpha    string `xml:"tgAlpha"`
+	TgCategory string `xml:"tgCat"`
+	TgTag      string `xml:"tgTag"`
+	Category   string `xml:"category"`
+	Tag        string `xml:"tag"`
+	Enc        string `xml:"enc"`
+	Mode       string `xml:"tgMode"`
 }
 
 func NewClient(username, password string) *Client {
@@ -172,6 +177,9 @@ func (c *Client) GetTrsTalkgroups(systemID int) ([]Talkgroup, error) {
 		return nil, err
 	}
 
+	// Debug: Log raw response to see what fields we're getting
+	log.Printf("RadioReference raw talkgroup response (first 2000 chars): %s", string(respBody[:min(2000, len(respBody))]))
+
 	var envelope SOAPEnvelope
 	if err := xml.Unmarshal(respBody, &envelope); err != nil {
 		return nil, fmt.Errorf("failed to parse SOAP envelope: %w", err)
@@ -184,6 +192,11 @@ func (c *Client) GetTrsTalkgroups(systemID int) ([]Talkgroup, error) {
 	// Filter unencrypted only
 	var unencrypted []Talkgroup
 	for _, tg := range envelope.Body.GetTrsTalkgroupsResponse.Return.Items {
+		// Debug: Log first talkgroup to see what we captured
+		if len(unencrypted) == 0 {
+			log.Printf("First talkgroup: Dec=%s, Alpha=%s, Cat=%s, Tag=%s, Enc=%s, Mode=%s", 
+				tg.TgDec, tg.TgAlpha, tg.TgCategory, tg.TgTag, tg.Enc, tg.Mode)
+		}
 		if tg.Enc == "0" {
 			unencrypted = append(unencrypted, tg)
 		}
@@ -191,6 +204,13 @@ func (c *Client) GetTrsTalkgroups(systemID int) ([]Talkgroup, error) {
 
 	log.Printf("RadioReference: Found %d unencrypted talkgroups for system %d", len(unencrypted), systemID)
 	return unencrypted, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (c *Client) CreateSystemFiles(systemID int) error {
@@ -370,6 +390,11 @@ func (c *Client) createTalkgroupsTSV(systemID int, talkgroups []Talkgroup, syste
 
 	log.Printf("Created talkgroups TSV: %s with %d talkgroups", tgFilepath, len(talkgroups))
 
+	// Create talkgroup metadata JSON file
+	if err := c.saveTalkgroupMetadata(systemID, talkgroups, systemFolder); err != nil {
+		log.Printf("Warning: Failed to save talkgroup metadata: %v", err)
+	}
+
 	// Create empty whitelist and blacklist files
 	whitelistPath := filepath.Join(systemFolder, fmt.Sprintf("%d_whitelist.tsv", systemID))
 	blacklistPath := filepath.Join(systemFolder, fmt.Sprintf("%d_blacklist.tsv", systemID))
@@ -471,4 +496,118 @@ func (c *Client) saveSiteMetadata(systemID int, sites []Site, systemFolder strin
 
 	log.Printf("Saved site metadata to: %s", metadataPath)
 	return nil
+}
+
+func (c *Client) saveTalkgroupMetadata(systemID int, talkgroups []Talkgroup, systemFolder string) error {
+	type TalkgroupMetadata struct {
+		Category  string `json:"category"`
+		Tag       string `json:"tag"`
+		Encrypted bool   `json:"encrypted"`
+		Mode      string `json:"mode"`
+	}
+
+	metadata := make(map[string]TalkgroupMetadata)
+	for _, tg := range talkgroups {
+		// Try both field name variations
+		category := tg.TgCategory
+		if category == "" {
+			category = tg.Category
+		}
+		tag := tg.TgTag
+		if tag == "" {
+			tag = tg.Tag
+		}
+		
+		// If still empty, try to infer from name
+		if category == "" {
+			category = inferCategoryFromName(tg.TgAlpha)
+		}
+		
+		metadata[tg.TgDec] = TalkgroupMetadata{
+			Category:  category,
+			Tag:       tag,
+			Encrypted: tg.Enc != "0",
+			Mode:      tg.Mode,
+		}
+	}
+
+	jsonData, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal talkgroup metadata: %w", err)
+	}
+
+	metadataPath := filepath.Join(systemFolder, fmt.Sprintf("%d_talkgroups_meta.json", systemID))
+	if err := os.WriteFile(metadataPath, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write talkgroup metadata file: %w", err)
+	}
+
+	log.Printf("Saved talkgroup metadata to: %s with %d entries", metadataPath, len(metadata))
+	return nil
+}
+
+// inferCategoryFromName attempts to categorize a talkgroup based on its name
+func inferCategoryFromName(name string) string {
+	nameLower := strings.ToLower(name)
+	
+	// Police/Law Enforcement
+	if strings.Contains(nameLower, "police") || strings.Contains(nameLower, " pd") ||
+	   strings.Contains(nameLower, "sheriff") || strings.Contains(nameLower, "so ") ||
+	   strings.Contains(nameLower, "deputy") || strings.Contains(nameLower, "patrol") ||
+	   strings.Contains(nameLower, "detective") || strings.Contains(nameLower, "swat") ||
+	   strings.Contains(nameLower, "tac") || strings.Contains(nameLower, "narc") {
+		return "Law Dispatch"
+	}
+	
+	// Fire
+	if strings.Contains(nameLower, "fire") || strings.Contains(nameLower, " fd") ||
+	   strings.Contains(nameLower, "rescue") {
+		return "Fire Dispatch"
+	}
+	
+	// EMS
+	if strings.Contains(nameLower, "ems") || strings.Contains(nameLower, "ambulance") ||
+	   strings.Contains(nameLower, "medic") || strings.Contains(nameLower, "paramedic") {
+		return "EMS Dispatch"
+	}
+	
+	// Emergency Management
+	if strings.Contains(nameLower, "eoc") || strings.Contains(nameLower, "emer") ||
+	   strings.Contains(nameLower, "disaster") {
+		return "Emergency Ops"
+	}
+	
+	// Public Works
+	if strings.Contains(nameLower, "public works") || strings.Contains(nameLower, "dpw") ||
+	   strings.Contains(nameLower, "highway") || strings.Contains(nameLower, "road") ||
+	   strings.Contains(nameLower, "water") || strings.Contains(nameLower, "sewer") ||
+	   strings.Contains(nameLower, "utilities") {
+		return "Public Works"
+	}
+	
+	// Transportation
+	if strings.Contains(nameLower, "transit") || strings.Contains(nameLower, "bus") ||
+	   strings.Contains(nameLower, "transport") {
+		return "Transportation"
+	}
+	
+	// Schools
+	if strings.Contains(nameLower, "school") || strings.Contains(nameLower, "district") ||
+	   strings.Contains(nameLower, "campus") {
+		return "Schools"
+	}
+	
+	// Corrections/Jail
+	if strings.Contains(nameLower, "jail") || strings.Contains(nameLower, "corr") ||
+	   strings.Contains(nameLower, "detention") || strings.Contains(nameLower, "prison") {
+		return "Corrections"
+	}
+	
+	// Interop/Mutual Aid
+	if strings.Contains(nameLower, "interop") || strings.Contains(nameLower, "mutual") ||
+	   strings.Contains(nameLower, "coord") || strings.Contains(nameLower, "command") {
+		return "Interop"
+	}
+	
+	// Default
+	return "Other"
 }

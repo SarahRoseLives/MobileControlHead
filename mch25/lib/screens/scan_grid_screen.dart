@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config.dart';
+import '../service/talkgroup_service.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -8,11 +9,13 @@ class Talkgroup {
   final String name;
   final String id;
   bool enabled;
+  String? category;
 
   Talkgroup({
     required this.name,
     required this.id,
     this.enabled = true, // Default to enabled
+    this.category,
   });
 
   factory Talkgroup.fromJson(Map<String, dynamic> json) {
@@ -37,6 +40,7 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
   bool _pendingChanges = false;
   int _currentPage = 0;
   final int _itemsPerPage = 9;
+  String? _selectedCategory; // null = show all
 
   @override
   void initState() {
@@ -88,6 +92,23 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
             }
           }
           
+          // Load metadata for categories
+          final metadataResponse = await http.get(Uri.parse('$backendUrl/api/talkgroups/metadata'));
+          if (metadataResponse.statusCode == 200) {
+            final metadataData = json.decode(metadataResponse.body);
+            if (metadataData['success'] == true) {
+              final Map<String, dynamic> metadata = Map<String, dynamic>.from(metadataData['metadata'] ?? {});
+              
+              // Apply categories to talkgroups
+              for (var tg in _allTalkgroups) {
+                final meta = metadata[tg.id];
+                if (meta != null && meta is Map<String, dynamic>) {
+                  tg.category = meta['category'] as String?;
+                }
+              }
+            }
+          }
+          
           setState(() {
             _isLoading = false;
             _currentPage = 0;
@@ -112,15 +133,33 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
     }
   }
 
+  List<Talkgroup> get _filteredTalkgroups {
+    if (_selectedCategory == null) {
+      return _allTalkgroups;
+    }
+    return _allTalkgroups.where((tg) => tg.category == _selectedCategory).toList();
+  }
+
   List<Talkgroup> get _currentPageTalkgroups {
+    final filtered = _filteredTalkgroups;
     final start = _currentPage * _itemsPerPage;
-    final end = (start + _itemsPerPage).clamp(0, _allTalkgroups.length);
-    if (start >= _allTalkgroups.length) return [];
-    return _allTalkgroups.sublist(start, end);
+    final end = (start + _itemsPerPage).clamp(0, filtered.length);
+    if (start >= filtered.length) return [];
+    return filtered.sublist(start, end);
   }
 
   int get _totalPages {
-    return (_allTalkgroups.length / _itemsPerPage).ceil();
+    return (_filteredTalkgroups.length / _itemsPerPage).ceil();
+  }
+  
+  Set<String> get _availableCategories {
+    final categories = <String>{};
+    for (var tg in _allTalkgroups) {
+      if (tg.category != null && tg.category!.isNotEmpty) {
+        categories.add(tg.category!);
+      }
+    }
+    return categories;
   }
 
   Future<void> _applyChanges() async {
@@ -212,6 +251,29 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
       _pendingChanges = true;
     });
   }
+  
+  Widget _buildCategoryChip(String label, String? category) {
+    final isSelected = _selectedCategory == category;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (selected) {
+          setState(() {
+            _selectedCategory = category;
+            _currentPage = 0; // Reset to first page when filter changes
+          });
+        },
+        selectedColor: Colors.cyanAccent,
+        backgroundColor: Colors.grey[800],
+        labelStyle: TextStyle(
+          color: isSelected ? Colors.black : Colors.white,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -298,7 +360,9 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                           ),
                         ),
                         Text(
-                          '${_allTalkgroups.where((tg) => tg.enabled).length}/${_allTalkgroups.length} enabled',
+                          _selectedCategory != null 
+                            ? '${_filteredTalkgroups.length} ${_selectedCategory} • ${_allTalkgroups.where((tg) => tg.enabled).length}/${_allTalkgroups.length} enabled'
+                            : '${_allTalkgroups.where((tg) => tg.enabled).length}/${_allTalkgroups.length} enabled',
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                       ],
@@ -320,6 +384,20 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                 ],
               ),
             ),
+            // Category filter bar
+            if (_availableCategories.isNotEmpty)
+              Container(
+                color: const Color(0xFF212121),
+                height: 50,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  children: [
+                    _buildCategoryChip('All', null),
+                    ..._availableCategories.map((cat) => _buildCategoryChip(cat, cat)),
+                  ],
+                ),
+              ),
             // Page navigation
             Container(
               color: const Color(0xFF313131),
@@ -394,26 +472,44 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                 ],
               ),
             ),
-            // 3x3 grid of talkgroups (9 per page)
+            // Dynamic grid of talkgroups - fills available space
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // Calculate optimal grid layout based on available space
+                  final double screenWidth = constraints.maxWidth;
+                  final double screenHeight = constraints.maxHeight;
+                  
+                  // Estimate card size (aiming for cards ~120-150px wide)
+                  int crossAxisCount = (screenWidth / 140).floor().clamp(2, 4);
+                  
+                  // Calculate how many rows can fit
+                  double cardHeight = 100; // Approximate card height
+                  int rowCount = (screenHeight / (cardHeight + 6)).floor();
+                  
+                  // Update items per page based on grid dimensions
+                  final itemsPerPage = crossAxisCount * rowCount;
+                  
+                  // Recalculate current page talkgroups with new items per page
+                  final filtered = _filteredTalkgroups;
+                  final start = _currentPage * itemsPerPage;
+                  final end = (start + itemsPerPage).clamp(0, filtered.length);
+                  final pageTalkgroups = start >= filtered.length ? <Talkgroup>[] : filtered.sublist(start, end);
+                  
                   double gridSpacing = 6.0;
-                  double totalSpacing = gridSpacing * 2; // 3 rows: 2 spaces
-                  double cardHeight = (constraints.maxHeight - totalSpacing) / 3;
 
                   return GridView.builder(
                     physics: const NeverScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(6.0),
-                    itemCount: talkgroups.length,
+                    itemCount: pageTalkgroups.length,
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
+                      crossAxisCount: crossAxisCount,
                       crossAxisSpacing: gridSpacing,
                       mainAxisSpacing: gridSpacing,
-                      childAspectRatio: constraints.maxWidth / (3 * cardHeight),
+                      childAspectRatio: 1.3,
                     ),
                     itemBuilder: (context, i) {
-                      final tg = talkgroups[i];
+                      final tg = pageTalkgroups[i];
                       return GestureDetector(
                         onTap: () {
                           setState(() {
@@ -452,6 +548,20 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
                                   style: const TextStyle(
                                       color: Colors.white70, fontSize: 9),
                                 ),
+                                if (tg.category != null && tg.category!.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      tg.category!,
+                                      style: const TextStyle(
+                                        color: Colors.cyanAccent,
+                                        fontSize: 8,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                               ],
                             ),
                           ),

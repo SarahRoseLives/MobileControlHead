@@ -1018,6 +1018,75 @@ func main() {
         })
     })
 
+    // Get talkgroup metadata (categories, tags, etc.)
+    http.HandleFunc("/api/talkgroups/metadata", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        // Get system ID from current trunk file
+        trunkFile := cfg.TrunkFile
+        if trunkFile == "" {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":  false,
+                "error":    "No system configured",
+                "metadata": map[string]interface{}{},
+            })
+            return
+        }
+        
+        parts := strings.Split(trunkFile, "/")
+        if len(parts) < 2 {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":  false,
+                "error":    "Invalid trunk file path",
+                "metadata": map[string]interface{}{},
+            })
+            return
+        }
+        
+        systemID := parts[1]
+        metadataFile := filepath.Join("systems", systemID, systemID+"_talkgroups_meta.json")
+        
+        // Read metadata file
+        data, err := os.ReadFile(metadataFile)
+        if err != nil {
+            // Metadata file doesn't exist - not an error, just return empty
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":  true,
+                "system_id": systemID,
+                "metadata": map[string]interface{}{},
+            })
+            return
+        }
+        
+        var metadata map[string]interface{}
+        if err := json.Unmarshal(data, &metadata); err != nil {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":  false,
+                "error":    fmt.Sprintf("Failed to parse metadata: %v", err),
+                "metadata": map[string]interface{}{},
+            })
+            return
+        }
+        
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success":   true,
+            "system_id": systemID,
+            "metadata":  metadata,
+        })
+    })
+
     // Get whitelist/blacklist for current system
     http.HandleFunc("/api/talkgroups/lists", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Access-Control-Allow-Origin", "*")
