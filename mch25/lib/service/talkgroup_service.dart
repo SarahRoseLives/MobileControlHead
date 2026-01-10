@@ -6,6 +6,9 @@ import '../config.dart';
 
 class TalkgroupService extends ChangeNotifier {
   Map<String, String> _talkgroupNames = {}; // tgid -> name
+  Set<String> _whitelist = {}; // enabled talkgroups
+  Set<String> _blacklist = {}; // disabled talkgroups
+  String? _currentSystemId;
   Timer? _refreshTimer;
   
   String getTalkgroupName(int tgid) {
@@ -15,12 +18,31 @@ class TalkgroupService extends ChangeNotifier {
   
   bool get hasData => _talkgroupNames.isNotEmpty;
   
+  bool isEnabled(int tgid) {
+    final tgidStr = tgid.toString();
+    // If whitelist has entries, talkgroup must be in whitelist
+    if (_whitelist.isNotEmpty) {
+      return _whitelist.contains(tgidStr);
+    }
+    // Otherwise, check if it's NOT in blacklist
+    return !_blacklist.contains(tgidStr);
+  }
+  
+  List<MapEntry<String, String>> get allTalkgroups {
+    return _talkgroupNames.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+  }
+  
+  String? get currentSystemId => _currentSystemId;
+  
   void start(AppConfig config) {
     _loadTalkgroups(config);
+    _loadLists(config);
     
     // Refresh talkgroups every 60 seconds in case system changes
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       _loadTalkgroups(config);
+      _loadLists(config);
     });
   }
   
@@ -51,6 +73,7 @@ class TalkgroupService extends ChangeNotifier {
             
             // Update the map and system ID
             _talkgroupNames = newMap;
+            _currentSystemId = systemId;
             notifyListeners();
             
             debugPrint('TalkgroupService: Loaded ${_talkgroupNames.length} talkgroups for system $systemId');
@@ -59,6 +82,94 @@ class TalkgroupService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('TalkgroupService: Error loading talkgroups: $e');
+    }
+  }
+  
+  Future<void> _loadLists(AppConfig config) async {
+    try {
+      final serverIp = config.serverIp;
+      if (serverIp.isEmpty) return;
+      
+      final url = 'http://$serverIp:${AppConfig.serverPort}/api/talkgroups/lists';
+      final response = await http.get(Uri.parse(url));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          final List<dynamic> whitelist = data['whitelist'] ?? [];
+          final List<dynamic> blacklist = data['blacklist'] ?? [];
+          
+          _whitelist = Set<String>.from(whitelist.map((e) => e.toString()));
+          _blacklist = Set<String>.from(blacklist.map((e) => e.toString()));
+          
+          notifyListeners();
+          
+          debugPrint('TalkgroupService: Loaded whitelist: ${_whitelist.length}, blacklist: ${_blacklist.length}');
+        }
+      }
+    } catch (e) {
+      debugPrint('TalkgroupService: Error loading lists: $e');
+    }
+  }
+  
+  Future<bool> toggleTalkgroup(String tgid, bool enabled) async {
+    if (enabled) {
+      // Add to whitelist, remove from blacklist
+      _whitelist.add(tgid);
+      _blacklist.remove(tgid);
+    } else {
+      // Remove from whitelist, add to blacklist
+      _whitelist.remove(tgid);
+      _blacklist.add(tgid);
+    }
+    
+    notifyListeners();
+    return await _saveLists();
+  }
+  
+  Future<bool> _saveLists() async {
+    try {
+      final serverIp = _currentSystemId != null ? '' : '';
+      if (serverIp.isEmpty) {
+        // Get server IP from somewhere - we'll need to pass config
+        return false;
+      }
+      
+      // This will be called with proper context
+      return true;
+    } catch (e) {
+      debugPrint('TalkgroupService: Error saving lists: $e');
+      return false;
+    }
+  }
+  
+  Future<bool> saveLists(AppConfig config) async {
+    try {
+      final serverIp = config.serverIp;
+      if (serverIp.isEmpty) return false;
+      
+      final url = 'http://$serverIp:${AppConfig.serverPort}/api/talkgroups/update-lists';
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'whitelist': _whitelist.toList(),
+          'blacklist': _blacklist.toList(),
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          debugPrint('TalkgroupService: Lists saved successfully');
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      debugPrint('TalkgroupService: Error saving lists: $e');
+      return false;
     }
   }
   

@@ -54,15 +54,41 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
       final appConfig = Provider.of<AppConfig>(context, listen: false);
       final backendUrl = 'http://${appConfig.serverIp}:${AppConfig.serverPort}';
       
+      // Load talkgroups
       final response = await http.get(Uri.parse('$backendUrl/api/talkgroups/list'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] == true) {
           final List<dynamic> talkgroupsJson = data['talkgroups'] ?? [];
+          _systemId = data['system_id'];
+          _allTalkgroups = talkgroupsJson.map((tg) => Talkgroup.fromJson(tg)).toList();
+          
+          // Load whitelist/blacklist to set enabled state
+          final listsResponse = await http.get(Uri.parse('$backendUrl/api/talkgroups/lists'));
+          if (listsResponse.statusCode == 200) {
+            final listsData = json.decode(listsResponse.body);
+            if (listsData['success'] == true) {
+              final List<dynamic> whitelist = listsData['whitelist'] ?? [];
+              final List<dynamic> blacklist = listsData['blacklist'] ?? [];
+              
+              final whitelistSet = Set<String>.from(whitelist.map((e) => e.toString()));
+              final blacklistSet = Set<String>.from(blacklist.map((e) => e.toString()));
+              
+              // Apply enabled state based on whitelist/blacklist
+              for (var tg in _allTalkgroups) {
+                if (whitelistSet.isNotEmpty) {
+                  // If whitelist has entries, only those in whitelist are enabled
+                  tg.enabled = whitelistSet.contains(tg.id);
+                } else {
+                  // Otherwise, enabled if NOT in blacklist
+                  tg.enabled = !blacklistSet.contains(tg.id);
+                }
+              }
+            }
+          }
+          
           setState(() {
-            _systemId = data['system_id'];
-            _allTalkgroups = talkgroupsJson.map((tg) => Talkgroup.fromJson(tg)).toList();
             _isLoading = false;
             _currentPage = 0;
           });
@@ -98,21 +124,77 @@ class _ScanGridScreenState extends State<ScanGridScreen> {
   }
 
   Future<void> _applyChanges() async {
-    // Get enabled talkgroups
-    final enabledTalkgroups = _allTalkgroups.where((tg) => tg.enabled).toList();
-    
-    // TODO: Send whitelist to backend and restart OP25
-    
-    setState(() {
-      _pendingChanges = false;
-    });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Applied ${enabledTalkgroups.length} talkgroups. Restart OP25 to apply.'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    try {
+      final appConfig = Provider.of<AppConfig>(context, listen: false);
+      final backendUrl = 'http://${appConfig.serverIp}:${AppConfig.serverPort}';
+      
+      // Build whitelist and blacklist
+      final whitelist = <String>[];
+      final blacklist = <String>[];
+      
+      for (var tg in _allTalkgroups) {
+        if (tg.enabled) {
+          whitelist.add(tg.id);
+        } else {
+          blacklist.add(tg.id);
+        }
+      }
+      
+      // Send to backend
+      final response = await http.post(
+        Uri.parse('$backendUrl/api/talkgroups/update-lists'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'whitelist': whitelist,
+          'blacklist': blacklist,
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            _pendingChanges = false;
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Saved ${whitelist.length} enabled, ${blacklist.length} disabled talkgroups'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to save: ${data['error']}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Server error: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _toggleAll(bool enable) {

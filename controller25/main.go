@@ -1018,6 +1018,162 @@ func main() {
         })
     })
 
+    // Get whitelist/blacklist for current system
+    http.HandleFunc("/api/talkgroups/lists", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        // Get system ID from current trunk file
+        trunkFile := cfg.TrunkFile
+        if trunkFile == "" {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":   false,
+                "error":     "No system configured",
+                "whitelist": []string{},
+                "blacklist": []string{},
+            })
+            return
+        }
+        
+        parts := strings.Split(trunkFile, "/")
+        if len(parts) < 2 {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success":   false,
+                "error":     "Invalid trunk file path",
+                "whitelist": []string{},
+                "blacklist": []string{},
+            })
+            return
+        }
+        
+        systemID := parts[1]
+        whitelistFile := filepath.Join("systems", systemID, systemID+"_whitelist.tsv")
+        blacklistFile := filepath.Join("systems", systemID, systemID+"_blacklist.tsv")
+        
+        // Read whitelist
+        whitelist := []string{}
+        if data, err := os.ReadFile(whitelistFile); err == nil {
+            for _, line := range strings.Split(string(data), "\n") {
+                line = strings.TrimSpace(line)
+                if line != "" {
+                    whitelist = append(whitelist, line)
+                }
+            }
+        }
+        
+        // Read blacklist
+        blacklist := []string{}
+        if data, err := os.ReadFile(blacklistFile); err == nil {
+            for _, line := range strings.Split(string(data), "\n") {
+                line = strings.TrimSpace(line)
+                if line != "" {
+                    blacklist = append(blacklist, line)
+                }
+            }
+        }
+        
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success":    true,
+            "system_id":  systemID,
+            "whitelist":  whitelist,
+            "blacklist":  blacklist,
+        })
+    })
+
+    // Update whitelist/blacklist for current system
+    http.HandleFunc("/api/talkgroups/update-lists", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        
+        if r.Method != http.MethodPost {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        
+        // Get system ID from current trunk file
+        trunkFile := cfg.TrunkFile
+        if trunkFile == "" {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": false,
+                "error":   "No system configured",
+            })
+            return
+        }
+        
+        parts := strings.Split(trunkFile, "/")
+        if len(parts) < 2 {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": false,
+                "error":   "Invalid trunk file path",
+            })
+            return
+        }
+        
+        systemID := parts[1]
+        
+        // Parse request body
+        var req struct {
+            Whitelist []string `json:"whitelist"`
+            Blacklist []string `json:"blacklist"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": false,
+                "error":   fmt.Sprintf("Invalid request: %v", err),
+            })
+            return
+        }
+        
+        // Write whitelist file
+        whitelistFile := filepath.Join("systems", systemID, systemID+"_whitelist.tsv")
+        whitelistContent := strings.Join(req.Whitelist, "\n")
+        if err := os.WriteFile(whitelistFile, []byte(whitelistContent), 0644); err != nil {
+            log.Printf("Error writing whitelist: %v", err)
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": false,
+                "error":   fmt.Sprintf("Failed to write whitelist: %v", err),
+            })
+            return
+        }
+        
+        // Write blacklist file
+        blacklistFile := filepath.Join("systems", systemID, systemID+"_blacklist.tsv")
+        blacklistContent := strings.Join(req.Blacklist, "\n")
+        if err := os.WriteFile(blacklistFile, []byte(blacklistContent), 0644); err != nil {
+            log.Printf("Error writing blacklist: %v", err)
+            _ = json.NewEncoder(w).Encode(map[string]interface{}{
+                "success": false,
+                "error":   fmt.Sprintf("Failed to write blacklist: %v", err),
+            })
+            return
+        }
+        
+        log.Printf("Updated lists for system %s - Whitelist: %d, Blacklist: %d", 
+                   systemID, len(req.Whitelist), len(req.Blacklist))
+        
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{
+            "success": true,
+            "message": "Lists updated successfully",
+        })
+    })
+
     // Channel for shutdown
     done := make(chan struct{})
 
